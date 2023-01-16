@@ -38,6 +38,9 @@ func urlPort(u *url.URL) string {
 }
 
 func parseAddrs(addrStr string) (addrs []netip.AddrPort, err error) {
+	if addrStr == "" {
+		return nil, nil
+	}
 	for _, part := range splitAndTrim(addrStr, ",") {
 		addr, err := netip.ParseAddrPort(part)
 		if err != nil {

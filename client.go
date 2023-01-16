@@ -10,9 +10,6 @@ import (
 )
 
 type Config struct {
-	// Timeout for Dial and Accept. This includes calling the server, waiting for the peer, and
-	// choosing a connection.
-	ConnTimeout time.Duration
 
 	// Strategy for choosing the conn to use. Default is RelayPenalty(time.Second)
 	DialChooser Chooser
@@ -112,7 +109,7 @@ func (c *Config) Dial(addr string, token string, reqHeader http.Header) (*Conn, 
 }
 
 func (c *Config) do(ctx context.Context, meta *Meta, reqHeader http.Header) (*Conn, *http.Response, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.ConnTimeout)
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	socket, err := NewSocket(ctx, 0)

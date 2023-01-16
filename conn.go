@@ -39,6 +39,10 @@ func (c *Conn) Read(p []byte) (int, error) {
 	return c.r.Read(p)
 }
 
+func (c *Conn) Meta() *Meta {
+	return c.meta
+}
+
 func (c *Conn) IsRelay() bool {
 	return c.isRelay
 }
