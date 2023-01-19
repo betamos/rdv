@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-type Config struct {
+type Client struct {
 	// TLS config to use with the rdv server.
 	TlsConfig *tls.Config
 
@@ -26,21 +26,21 @@ type Config struct {
 	Logf func(string, ...interface{})
 }
 
-func (c *Config) logf(format string, v ...interface{}) {
+func (c *Client) logf(format string, v ...interface{}) {
 	if c.Logf == nil {
 		return
 	}
 	c.Logf(format+"\n", v...)
 }
 
-func (c *Config) dialChooser() Chooser {
+func (c *Client) dialChooser() Chooser {
 	if c.DialChooser != nil {
 		return c.DialChooser
 	}
 	return RelayPenalty(2 * time.Second)
 }
 
-func (c *Config) selfAddrs(ctx context.Context, socket *Socket) []netip.AddrPort {
+func (c *Client) selfAddrs(ctx context.Context, socket *Socket) []netip.AddrPort {
 	fn := c.SelfAddrFunc
 	if fn == nil {
 		fn = DefaultSelfAddrs
@@ -102,23 +102,23 @@ func lnChoose(cancel func(), candidates chan *Conn) (chosen *Conn, unchosen []*C
 	return
 }
 
-func (c *Config) DialContext(ctx context.Context, addr string, token string, reqHeader http.Header) (*Conn, *http.Response, error) {
+func (c *Client) DialContext(ctx context.Context, addr string, token string, reqHeader http.Header) (*Conn, *http.Response, error) {
 	return c.do(ctx, newMeta(true, addr, token), reqHeader)
 }
 
-func (c *Config) AcceptContext(ctx context.Context, addr string, token string, reqHeader http.Header) (*Conn, *http.Response, error) {
+func (c *Client) AcceptContext(ctx context.Context, addr string, token string, reqHeader http.Header) (*Conn, *http.Response, error) {
 	return c.do(ctx, newMeta(false, addr, token), reqHeader)
 }
 
-func (c *Config) Accept(addr string, token string, reqHeader http.Header) (*Conn, *http.Response, error) {
+func (c *Client) Accept(addr string, token string, reqHeader http.Header) (*Conn, *http.Response, error) {
 	return c.AcceptContext(context.Background(), addr, token, reqHeader)
 }
 
-func (c *Config) Dial(addr string, token string, reqHeader http.Header) (*Conn, *http.Response, error) {
+func (c *Client) Dial(addr string, token string, reqHeader http.Header) (*Conn, *http.Response, error) {
 	return c.DialContext(context.Background(), addr, token, reqHeader)
 }
 
-func (c *Config) do(ctx context.Context, meta *Meta, reqHeader http.Header) (*Conn, *http.Response, error) {
+func (c *Client) do(ctx context.Context, meta *Meta, reqHeader http.Header) (*Conn, *http.Response, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -165,7 +165,7 @@ func (c *Config) do(ctx context.Context, meta *Meta, reqHeader http.Header) (*Co
 	return chosen, nil, nil
 }
 
-func (c *Config) dialAndListen(relay *Conn, s *Socket, ncs chan *Conn) {
+func (c *Client) dialAndListen(relay *Conn, s *Socket, ncs chan *Conn) {
 	var (
 		wg sync.WaitGroup
 	)
@@ -204,7 +204,7 @@ func (c *Config) dialAndListen(relay *Conn, s *Socket, ncs chan *Conn) {
 	// success, otherwise relay
 }
 
-func (c *Config) peerShake(in chan *Conn, out chan *Conn) {
+func (c *Client) peerShake(in chan *Conn, out chan *Conn) {
 	var (
 		cArr = []net.Conn{}
 		wg   sync.WaitGroup

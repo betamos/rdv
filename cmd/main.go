@@ -67,7 +67,7 @@ func server() error {
 }
 
 func client(dialer bool) error {
-	client := rdv.Config{
+	client := rdv.Client{
 		Logf: logf(),
 	}
 	addr := flag.Arg(1)
