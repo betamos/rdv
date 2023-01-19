@@ -36,7 +36,7 @@ func (m *Meta) serverSummary() string {
 }
 
 func (m *Meta) setPeerAddrsFrom(peer *Meta) {
-	m.PeerAddrs = make([]netip.AddrPort, len(m.SelfAddrs), len(m.SelfAddrs)+1)
+	m.PeerAddrs = make([]netip.AddrPort, len(peer.SelfAddrs), len(peer.SelfAddrs)+1)
 	copy(m.PeerAddrs, peer.SelfAddrs)
 
 	if peer.ObservedAddr != nil {
