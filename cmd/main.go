@@ -68,8 +68,7 @@ func server() error {
 
 func client(dialer bool) error {
 	client := rdv.Config{
-		DialChooser: rdv.RelayPenalty(time.Second),
-		Logf:        logf(),
+		Logf: logf(),
 	}
 	addr := flag.Arg(1)
 	token := flag.Arg(2)

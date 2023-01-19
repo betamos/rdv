@@ -14,7 +14,7 @@ type Config struct {
 	// TLS config to use with the rdv server.
 	TlsConfig *tls.Config
 
-	// Strategy for choosing the conn to use. Default is RelayPenalty(time.Second)
+	// Strategy for choosing the conn to use. If nil, defaults to RelayPenalty(2 * time.Second)
 	DialChooser Chooser
 
 	// Defaults to using all available addresses that match `GoodSelfAddr`.
@@ -31,6 +31,13 @@ func (c *Config) logf(format string, v ...interface{}) {
 		return
 	}
 	c.Logf(format+"\n", v...)
+}
+
+func (c *Config) dialChooser() Chooser {
+	if c.DialChooser != nil {
+		return c.DialChooser
+	}
+	return RelayPenalty(2 * time.Second)
 }
 
 func (c *Config) selfAddrs(ctx context.Context, socket *Socket) []netip.AddrPort {
@@ -133,7 +140,7 @@ func (c *Config) do(ctx context.Context, meta *Meta, reqHeader http.Header) (*Co
 		return nil, resp, err
 	}
 	if meta.IsDialer {
-		chooser = c.DialChooser
+		chooser = c.dialChooser()
 	}
 	ncs <- relay // add relay conn
 
