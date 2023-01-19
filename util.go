@@ -14,16 +14,6 @@ import (
 	"time"
 )
 
-// func sleepContext(ctx context.Context, d time.Duration) error {
-// 	timer := time.NewTimer(d)
-// 	defer timer.Stop()
-// 	select {
-// 	case <-ctx.Done():
-// 	case <-timer.C:
-// 	}
-// 	return ctx.Err()
-// }
-
 func urlPort(u *url.URL) string {
 	if p := u.Port(); p != "" {
 		return p

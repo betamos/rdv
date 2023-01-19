@@ -57,12 +57,12 @@ func logf() func(string, ...interface{}) {
 }
 
 func server() error {
-	log.Printf("starting rdv server on %v\n", flagLAddr)
 	config := rdv.DefaultServerConfig
 	config.Logf = logf()
 	server := rdv.NewServer(nil)
 	http.Handle("/", server)
 	go server.Serve()
+	log.Printf("starting rdv server on %v\n", flagLAddr)
 	return http.ListenAndServe(flagLAddr, nil)
 }
 
@@ -87,7 +87,7 @@ func client(dialer bool) error {
 		connType = "relay"
 	}
 	if meta.ObservedAddr == nil {
-		log.Printf("NOTICE: missing observed addr - see docs\n")
+		log.Printf("NOTICE: missing observed address\n")
 	}
 	log.Printf("CONNECTED: %s %v, %s\n", connType, conn.RemoteAddr(), formatSince(tStart))
 

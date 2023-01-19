@@ -22,10 +22,6 @@ var DefaultRelayer = &Relayer{
 	IdleTimeout: time.Minute,
 }
 
-// func Relay(dc, ac *Conn, cfg *RelayConfig) (dn int64, ln int64, err error) {
-// 	return RelayContext(context.Background(), dc, ac, cfg)
-// }
-
 func (r *Relayer) Reject(dc, ac *Conn, statusCode int, reason string) error {
 	err := writeResponseErr(dc, statusCode, reason)
 	err2 := writeResponseErr(ac, statusCode, reason)

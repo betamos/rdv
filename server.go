@@ -15,18 +15,6 @@ type ServerConfig struct {
 	// Amount of time that on peer can wait in the lobby for its partner. Zero means no timeout.
 	LobbyTimeout time.Duration
 
-	// Amount of inactivity before relay conns are dropped. Zero means no timeout.
-	// This can be overridden with a custom RelayConfig in ServeFunc.
-	RelayTimeout time.Duration
-
-	// Number of peers that are allowed to wait in the lobby simultaneous. Zero means no limit.
-	MaxLobbyConns int
-
-	// Number of active relay conns, each using a pair of underlying network connections.
-	// Conns that end up using p2p are treated as relay conns until they establish connectivity.
-	// Zero means no limit.
-	MaxRelayConns int
-
 	// Function to serve a relay connection between dialer and server.
 	// The provided context is canceled along with the server.
 	// The function is responsible for closing the connections.
@@ -41,14 +29,12 @@ type ServerConfig struct {
 	// setup guide for details.
 	ObservedAddrFunc func(req *http.Request) (netip.AddrPort, error)
 
-	// Logging fn
+	// Logging function.
 	Logf func(string, ...interface{})
 }
 
 var DefaultServerConfig = &ServerConfig{
-	LobbyTimeout: 20 * time.Second,
-	RelayTimeout: 20 * time.Second,
-	ServeFunc:    DefaultHandler,
+	ServeFunc: DefaultHandler,
 }
 
 type Server struct {
@@ -246,23 +232,6 @@ func (l *Server) ServeContext(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// SetTimeout story
-// Tap before or after write
-//   - before: taps all data including what hasn't been sent, block writes, rate limit
-//   - after: monitor bandwidth, measure exactly what was written
-//
-// Pair or conns
-// - all else equal: conns (fewer types)
-// - can taps be per conn? no because we're tapping the read
-// Lobby and relay closure, graceful shutdown etc
-// Close outside handler?
-// - no risk of leakage
-// - can't transfer to my own handler
-// Handler or channel?
-// - setting up the goroutines for relays is error-prone
-
 func DefaultHandler(ctx context.Context, dc, ac *Conn) {
-
-	// TODO: Should be able to reject requests, and write a response header
 	DefaultRelayer.Run(ctx, dc, ac)
 }

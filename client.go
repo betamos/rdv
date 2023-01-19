@@ -22,7 +22,7 @@ type Config struct {
 	// Can be overridden if port mapping protocols are needed.
 	SelfAddrFunc func(ctx context.Context, socket *Socket) []netip.AddrPort
 
-	// Logging fn
+	// Logging function.
 	Logf func(string, ...interface{})
 }
 
