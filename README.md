@@ -22,17 +22,17 @@ use-cases.
 
 ## Quick start
 
-Install the rdv CLI on 2+ clients and the server: `go install github.com/betamos/rdv`.
+Install the rdv CLI on 2+ clients and the server: `go build -o rdv ./cmd` from the cloned repo.
 
 ```sh
 # On your server
-rdv serve
+./rdv serve
 
 # On client A
-rdv dial http://example.com:8080 MY_TOKEN  # Token is an arbitrary string, e.g. a UUID
+./rdv dial http://example.com:8080 MY_TOKEN  # Token is an arbitrary string, e.g. a UUID
 
 # On client B
-rdv accept http://example.com:8080 MY_TOKEN  # Both clients need to provide the same token
+./rdv accept http://example.com:8080 MY_TOKEN  # Both clients need to provide the same token
 ```
 
 On the clients, you should see something like:
@@ -48,8 +48,8 @@ peer. You can pipe files and stuff in and out of these commands (but you probabl
 since there's no security):
 
 ```sh
-rdv dial ... < my_lastpass_vault.zip  # A publicly available file
-rdv accept ... > vault.zip  # Seriously, don't send anything sensitive
+./rdv dial ... < my_lastpass_vault.zip  # A publicly available file
+./rdv accept ... > vault.zip  # Seriously, don't send anything sensitive
 ```
 
 ## How does it work?
