@@ -13,8 +13,9 @@ import (
 
 type Socket struct {
 	net.Listener
-	D4, D6 *net.Dialer
-	Port   uint16
+	D4, D6    *net.Dialer
+	Port      uint16
+	TlsConfig *tls.Config
 }
 
 func dialer(localIp net.IP, port uint16) *net.Dialer {
@@ -24,7 +25,7 @@ func dialer(localIp net.IP, port uint16) *net.Dialer {
 	}
 }
 
-func NewSocket(ctx context.Context, port uint16) (*Socket, error) {
+func NewSocket(ctx context.Context, port uint16, tlsConf *tls.Config) (*Socket, error) {
 	lc := net.ListenConfig{
 		Control: reuseport.Control,
 	}
@@ -34,10 +35,11 @@ func NewSocket(ctx context.Context, port uint16) (*Socket, error) {
 	}
 	port = netip.MustParseAddrPort(ln.Addr().String()).Port()
 	return &Socket{
-		Listener: ln,
-		D4:       dialer(net.IPv4zero, port),
-		D6:       dialer(net.IPv6zero, port),
-		Port:     port,
+		Listener:  ln,
+		D4:        dialer(net.IPv4zero, port),
+		D6:        dialer(net.IPv6zero, port),
+		Port:      port,
+		TlsConfig: tlsConf,
 	}, nil
 }
 
@@ -67,7 +69,10 @@ func (s *Socket) DialURLContext(ctx context.Context, network string, url *urlpkg
 	netd := s.networkToDialer(network)
 	dialFn := netd.DialContext
 	if url.Scheme == "https" {
-		tlsd := &tls.Dialer{NetDialer: netd}
+		tlsd := &tls.Dialer{
+			NetDialer: netd,
+			Config:    s.TlsConfig,
+		}
 		dialFn = tlsd.DialContext
 	} else if url.Scheme != "http" {
 		return nil, fmt.Errorf("unexpected scheme [%s]", url.Scheme)

@@ -2,6 +2,7 @@ package rdv
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"net/netip"
@@ -10,6 +11,8 @@ import (
 )
 
 type Config struct {
+	// TLS config to use with the rdv server.
+	TlsConfig *tls.Config
 
 	// Strategy for choosing the conn to use. Default is RelayPenalty(time.Second)
 	DialChooser Chooser
@@ -112,7 +115,7 @@ func (c *Config) do(ctx context.Context, meta *Meta, reqHeader http.Header) (*Co
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	socket, err := NewSocket(ctx, 0)
+	socket, err := NewSocket(ctx, 0, c.TlsConfig)
 	if err != nil {
 		return nil, nil, err
 	}
