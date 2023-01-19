@@ -1,8 +1,6 @@
----
-breaks: false
----
-
 # Rdv: universal tcp connectivity
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/betamos/rdv.svg)](https://pkg.go.dev/github.com/betamos/rdv)
 
 Rdv is a relay-assisted p2p connectivity library that quickly and reliably
 establishes a TCP connection between two peers in any network topology,
@@ -144,3 +142,6 @@ In either case, you should make sure connections are at least authenticated, and
 also end-to-end encrypted. You can use TLS from the standard library with client certificates,
 for instance.
 
+## License
+
+Rdv is licensed under MIT + Apache 2.0.
