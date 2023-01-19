@@ -118,20 +118,25 @@ func expectStr(r io.Reader, str string) error {
 type idleTimer struct {
 	ctx     context.Context
 	timeout time.Duration
-	dirty   atomic.Bool
+	dirty   uint32 // atomic bool
 }
 
 func newIdleTimer(ctx context.Context, timeout time.Duration) *idleTimer {
-	return &idleTimer{ctx, timeout, atomic.Bool{}}
+	return &idleTimer{ctx, timeout, 0}
 }
 
 // Registers activity and prolongs the deadline
 func (t *idleTimer) Extend() {
-	t.dirty.Store(true)
+	atomic.StoreUint32(&t.dirty, 1)
+}
+
+// Resets the dirty state and returns whether it was extended
+func (t *idleTimer) reset() (extended bool) {
+	return atomic.SwapUint32(&t.dirty, 0) != 0
 }
 
 func (t *idleTimer) Write(p []byte) (int, error) {
-	t.dirty.Store(true)
+	t.Extend()
 	return len(p), nil
 }
 
@@ -148,7 +153,7 @@ func (t *idleTimer) Wait() error {
 	for {
 		select {
 		case <-tickCh:
-			if !t.dirty.Swap(false) { // new, old
+			if !t.reset() { // new, old
 				return ErrIdleTimeout
 			}
 		case <-t.ctx.Done():
