@@ -141,7 +141,3 @@ peer identities through e.g. an auth token.
 In either case, you should make sure connections are at least authenticated, and preferably
 also end-to-end encrypted. You can use TLS from the standard library with client certificates,
 for instance.
-
-## License
-
-Rdv is licensed under MIT + Apache 2.0.
