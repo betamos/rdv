@@ -17,10 +17,10 @@ type Config struct {
 	// Strategy for choosing the conn to use. Default is RelayPenalty(time.Second)
 	DialChooser Chooser
 
-	// Defaults to net.InterfaceAddrs() using the port of the client
+	// Defaults to using all available addresses that match `GoodSelfAddr`.
 	// This is called on each Dial or Accept, so it should be quick (ideally < 100ms).
-	// By default, all addresses that are
-	SelfAddrFn func(ctx context.Context, socket *Socket) []netip.AddrPort
+	// Can be overridden if port mapping protocols are needed.
+	SelfAddrFunc func(ctx context.Context, socket *Socket) []netip.AddrPort
 
 	// Logging fn
 	Logf func(string, ...interface{})
@@ -34,7 +34,7 @@ func (c *Config) logf(format string, v ...interface{}) {
 }
 
 func (c *Config) selfAddrs(ctx context.Context, socket *Socket) []netip.AddrPort {
-	fn := c.SelfAddrFn
+	fn := c.SelfAddrFunc
 	if fn == nil {
 		fn = DefaultSelfAddrs
 	}
