@@ -11,10 +11,25 @@ import (
 	"github.com/libp2p/go-reuseport"
 )
 
+// An SO_REUSEPORT TCP socket suitable for NAT traversal/hole punching, over both ipv4 and ipv6.
+// Usually, higher level abstractions should be used.
 type Socket struct {
+
+	// A dual-stack (ipv4/6) TCP listener.
+	//
+	// TODO: Should this be refactored into two single-stack listeners, in order to support
+	// non dual-stack systems? And if so, can the ports be different? See also NAT64.
 	net.Listener
-	D4, D6    *net.Dialer
-	Port      uint16
+
+	/// Dialers for ipv4 and ipv6.
+	D4, D6 *net.Dialer
+
+	/// Port number for the socket, both stacks.
+	Port uint16
+
+	// TLS config for https.
+	//
+	// TODO: Higher level protocols should be one layer above sockets?
 	TlsConfig *tls.Config
 }
 
