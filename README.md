@@ -1,4 +1,4 @@
-# Rdv: Relay-assisted p2p over tcp
+# Rdv: Relay-assisted p2p connectivity
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/betamos/rdv.svg)](https://pkg.go.dev/github.com/betamos/rdv)
 
@@ -12,19 +12,27 @@ with a relay fallback in the rare case where p2p isn't feasible. The library pro
 
 Rdv is designed to achieve p2p connectivity in real-world environments, without error-prone
 monitoring of the network or using stateful and complex port-mapping protocols (like UPnP).
-It uses resources only when establishing connections, and nothing while idle.
+Clients use a small amount of resources while establishing connections, but after that there are
+no idle cost, aside from the TCP connection itself.
 [See how it works below](#how-does-it-work).
+
+Rdv is built to support file transfers in [Payload](https://payload.app/).
+Note that rdv is experimental and may change at any moment.
+Always use immature software responsibly.
+Feel free to use the issue tracker for questions and feedback.
 
 ## Why?
 
 If you're writing a centralized app, you can get lower latency, higher bandwidth and reduced
 operational costs, compared to sending p2p data through your servers.
 
-Even decentralized or hybrid apps can increase availability and QoS by having an optional set of
-rdv servers. Relays are necessary in some topologies where p2p isn't possible.
+If you're writing a decentralized or hybrid app, you can increase availability and QoS by having an
+optional set of rdv servers, since relays are necessary in some topologies where p2p isn't feasible.
+That said, rdv uses TCP, which isn't suitable for massive mesh-like networks with
+hundreds of thousands of interconnected nodes.
 
 You can also think of rdv as a <1000 LoC, minimal config alternative to WebRTC, but for non-realtime
-use-cases.
+use-cases and BYO authentication.
 
 ## Quick start
 
