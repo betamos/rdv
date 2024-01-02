@@ -53,27 +53,49 @@ func DefaultSelfAddrs(ctx context.Context, socket *Socket) []netip.AddrPort {
 	return addrs
 }
 
-// IP address space, in order to differentiate between meaningful addrs.
-// Link-local ipv6 addrs are not recommended with rdv due to zones.
+// An IP address space is derived from an IP address. These are used for connectivity in rdv, and
+// thus don't include multicast etc. order to differentiate between meaningful addrs.
 type AddrSpace uint32
 
 const (
+
+	// Denotes invalid spaces.
 	SpaceInvalid AddrSpace = 0
-	SpacePublic4           = 1 << iota
+
+	// Public IPv4 addrs, extremely common and useful for remote connectivity when available.
+	SpacePublic4 AddrSpace = 1 << iota
+
+	// Public IPv6 addrs, very common and very useful for both local and remote connectivity.
 	SpacePublic6
+
+	// Private IPv4 addrs are very common and useful for local connectivity.
 	SpacePrivate4
+
+	// ULA ipv6 addrs are not common (although link-local are).
 	SpacePrivate6
+
+	// Link-local ipv4 addrs are not common in most setups.
 	SpaceLink4
+
+	// Link-local ipv6 addrs are not recommended with rdv due to zones.
 	SpaceLink6
+
+	// Loopback addresses are mostly useful for testing.
 	SpaceLoopback
 )
 
-// Provides connectivity in almost all cases.
-// Private v6 is disabled for noise - almost all private networks have ipv4 support.
 const (
-	PublicSpaces  AddrSpace = SpacePublic4 | SpacePublic6
-	DefaultSpaces AddrSpace = SpacePublic4 | SpacePublic6 | SpacePrivate4
-	AllSpaces     AddrSpace = ^SpaceInvalid //SpacePublic4 | SpacePublic6 | SpacePrivate4 | SpacePrivate6 | SpaceLink4 | SpaceLink6 | SpaceLoopback
+	// No spaces won't match any spaces
+	NoSpaces AddrSpace = 1 << 31
+
+	// Public IPs only
+	PublicSpaces AddrSpace = SpacePublic4 | SpacePublic6
+
+	// Sensible defaults for most users, includes private and public spaces
+	DefaultSpaces AddrSpace = SpacePublic4 | SpacePublic6 | SpacePrivate4 | SpacePrivate6
+
+	// All IP spaces
+	AllSpaces AddrSpace = ^NoSpaces
 )
 
 func (s AddrSpace) Includes(space AddrSpace) bool {
@@ -94,6 +116,8 @@ func (s AddrSpace) String() string {
 		return "link4"
 	case SpaceLink6:
 		return "link6"
+	case SpaceLoopback:
+		return "loopback"
 	}
 	return "invalid"
 }

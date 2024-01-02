@@ -70,7 +70,7 @@ func server() error {
 
 func client(dialer bool) error {
 	client := rdv.NewClient(&rdv.ClientConfig{
-		AddrSpaces: rdv.PublicSpaces,
+		AddrSpaces: rdv.DefaultSpaces,
 	})
 	addr := flag.Arg(1)
 	token := flag.Arg(2)

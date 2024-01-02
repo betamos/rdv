@@ -43,7 +43,7 @@ func TestGetAddrSpace(t *testing.T) {
 	}
 }
 
-func TestIncluded(t *testing.T) {
+func TestAddrSpaceIncluded(t *testing.T) {
 	var spaces AddrSpace = SpacePrivate4 | SpacePublic6
 	if !spaces.Includes(SpacePrivate4) {
 		log.Fatalln("expected private4 included")
@@ -56,5 +56,18 @@ func TestIncluded(t *testing.T) {
 	}
 	if spaces.Includes(SpaceInvalid) {
 		log.Fatalln("expected invalid to not be included")
+	}
+
+	if !AllSpaces.Includes(SpacePrivate4) {
+		log.Fatalln("all: expected private4 be included")
+	}
+	if AllSpaces.Includes(SpaceInvalid) {
+		log.Fatalln("all: expected invalid to not be included")
+	}
+	if NoSpaces.Includes(SpacePrivate4) {
+		log.Fatalln("no: expected private4 to not be included")
+	}
+	if NoSpaces.Includes(SpaceInvalid) {
+		log.Fatalln("no: expected invalid to not be included")
 	}
 }

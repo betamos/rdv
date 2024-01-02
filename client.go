@@ -19,7 +19,7 @@ type ClientConfig struct {
 	// Strategy for choosing the conn to use. If nil, defaults to RelayPenalty(time.Second)
 	DialChooser Chooser
 
-	// Can be used to allow only a certain set of spaces, such as public IPs only. By default
+	// Can be used to allow only a certain set of spaces, such as public IPs only. Defaults to
 	// DefaultSpaces which optimal for both local and global peering.
 	AddrSpaces AddrSpace
 
