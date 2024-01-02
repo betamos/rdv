@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/lmittmann/tint"
 
 	"github.com/betamos/rdv"
 )
@@ -31,6 +34,15 @@ func init() {
 func main() {
 	var err error
 	flag.Parse()
+	var level = slog.LevelInfo
+	if flagVerbose {
+		level = slog.LevelDebug
+	}
+	handler := tint.NewHandler(os.Stderr, &tint.Options{
+		Level:      level,
+		TimeFormat: time.TimeOnly,
+	})
+	slog.SetDefault(slog.New(handler))
 	command := flag.Arg(0)
 	switch command {
 	case "s", "serve":
@@ -44,32 +56,22 @@ func main() {
 		os.Exit(2)
 	}
 	if err != nil {
-		log.Fatalln("ERR:", err)
+		slog.Error("invalid args", "err", err)
 	}
-}
-
-func logf() func(string, ...interface{}) {
-	if flagVerbose {
-		return log.Printf
-	}
-	log.SetFlags(0)
-	return nil
 }
 
 func server() error {
-	config := rdv.DefaultServerConfig
-	config.Logf = logf()
 	server := rdv.NewServer(nil)
 	http.Handle("/", server)
-	go server.Serve()
-	log.Printf("starting rdv server on %v\n", flagLAddr)
+	go server.Serve(context.Background())
+	slog.Info("server: listening", "addr", flagLAddr)
 	return http.ListenAndServe(flagLAddr, nil)
 }
 
 func client(dialer bool) error {
-	client := rdv.Client{
-		Logf: logf(),
-	}
+	client := rdv.NewClient(&rdv.ClientConfig{
+		AddrSpaces: rdv.PublicSpaces,
+	})
 	addr := flag.Arg(1)
 	token := flag.Arg(2)
 	fn := client.Accept
@@ -77,47 +79,34 @@ func client(dialer bool) error {
 		fn = client.Dial
 	}
 	tStart := time.Now()
-	conn, _, err := fn(addr, token, nil)
+	conn, _, err := fn(context.Background(), addr, token, nil)
 	if err != nil {
 		return err
 	}
 	meta := conn.Meta()
-	connType := "p2p"
-	if conn.IsRelay() {
-		connType = "relay"
-	}
 	if meta.ObservedAddr == nil {
-		log.Printf("NOTICE: missing observed address\n")
+		slog.Warn("client: missing observed address")
 	}
-	log.Printf("CONNECTED: %s %v, %s\n", connType, conn.RemoteAddr(), formatSince(tStart))
 
 	var (
-		sent, received int64
-		tConnected     = time.Now()
+		tx, rx     int64
+		tConnected = time.Now()
+		done       = make(chan struct{})
 	)
+	slog.Info("client: peer connected", "is_relay", conn.IsRelay(), "addr", conn.RemoteAddr(), "dur", tConnected.Sub(tStart))
+	pr, pw := io.Pipe()
 	go func() {
-		sent, _ = io.Copy(conn, os.Stdin)
-		conn.Close()
+		io.Copy(pw, os.Stdin) // May never terminate
+		pw.Close()
 	}()
-	received, _ = io.Copy(os.Stdout, conn)
-	log.Printf("DONE: %v <-> %v, %v\n", formatBytes(received), formatBytes(sent), formatSince(tConnected))
+	go func() {
+		tx, _ = io.Copy(conn, pr)
+		conn.Close()
+		close(done)
+	}()
+	rx, _ = io.Copy(os.Stdout, conn)
+	pr.Close()
+	<-done
+	slog.Info("client: peer disconnected", "tx", tx, "rx", rx, "dur", time.Since(tConnected))
 	return nil
-}
-
-func formatSince(t time.Time) string {
-	return time.Since(t).Round(time.Millisecond).String()
-}
-
-func formatBytes(b int64) string {
-	const unit = 1000
-	if b < unit {
-		return fmt.Sprintf("%d B", b)
-	}
-	div, exp := int64(unit), 0
-	for n := b / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB",
-		float64(b)/float64(div), "kMGTPE"[exp])
 }

@@ -3,6 +3,8 @@ package rdv
 import (
 	"context"
 	"crypto/tls"
+	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -10,42 +12,53 @@ import (
 	"time"
 )
 
-type Client struct {
+type ClientConfig struct {
 	// TLS config to use with the rdv server.
 	TlsConfig *tls.Config
 
-	// Strategy for choosing the conn to use. If nil, defaults to RelayPenalty(2 * time.Second)
+	// Strategy for choosing the conn to use. If nil, defaults to RelayPenalty(time.Second)
 	DialChooser Chooser
 
-	// Defaults to using all available addresses that match `GoodSelfAddr`.
-	// This is called on each Dial or Accept, so it should be quick (ideally < 100ms).
+	// Can be used to allow only a certain set of spaces, such as public IPs only. By default
+	// DefaultSpaces which optimal for both local and global peering.
+	AddrSpaces AddrSpace
+
+	// Defaults to using all available interface addresses. The list is automatically filtered by
+	// AddrSpaces. This is called on each Dial or Accept, so it should be quick (ideally < 100ms).
 	// Can be overridden if port mapping protocols are needed.
 	SelfAddrFunc func(ctx context.Context, socket *Socket) []netip.AddrPort
 
-	// Logging function.
-	Logf func(string, ...interface{})
+	// Logger, by default slog.Default()
+	Logger *slog.Logger
 }
 
-func (c *Client) logf(format string, v ...interface{}) {
-	if c.Logf == nil {
-		return
+func (c *ClientConfig) setDefaults() {
+	if c.DialChooser == nil {
+		c.DialChooser = RelayPenalty(time.Second)
 	}
-	c.Logf(format+"\n", v...)
+	if c.AddrSpaces == 0 {
+		c.AddrSpaces = DefaultSpaces
+	}
+	if c.SelfAddrFunc == nil {
+		c.SelfAddrFunc = DefaultSelfAddrs
+	}
+	if c.Logger == nil {
+		c.Logger = slog.Default()
+	}
 }
 
-func (c *Client) dialChooser() Chooser {
-	if c.DialChooser != nil {
-		return c.DialChooser
-	}
-	return RelayPenalty(2 * time.Second)
+type Client struct {
+	cfg ClientConfig
 }
 
-func (c *Client) selfAddrs(ctx context.Context, socket *Socket) []netip.AddrPort {
-	fn := c.SelfAddrFunc
-	if fn == nil {
-		fn = DefaultSelfAddrs
+func NewClient(cfg *ClientConfig) *Client {
+	c := &Client{}
+
+	if cfg != nil {
+		c.cfg = *cfg
 	}
-	return fn(ctx, socket)
+	c.cfg.setDefaults()
+	return c
 }
 
 // Chooser is called once a direct connection is started.
@@ -102,27 +115,20 @@ func lnChoose(cancel func(), candidates chan *Conn) (chosen *Conn, unchosen []*C
 	return
 }
 
-func (c *Client) DialContext(ctx context.Context, addr string, token string, reqHeader http.Header) (*Conn, *http.Response, error) {
+func (c *Client) Dial(ctx context.Context, addr string, token string, reqHeader http.Header) (*Conn, *http.Response, error) {
 	return c.do(ctx, newMeta(true, addr, token), reqHeader)
 }
 
-func (c *Client) AcceptContext(ctx context.Context, addr string, token string, reqHeader http.Header) (*Conn, *http.Response, error) {
+func (c *Client) Accept(ctx context.Context, addr string, token string, reqHeader http.Header) (*Conn, *http.Response, error) {
 	return c.do(ctx, newMeta(false, addr, token), reqHeader)
 }
 
-func (c *Client) Accept(addr string, token string, reqHeader http.Header) (*Conn, *http.Response, error) {
-	return c.AcceptContext(context.Background(), addr, token, reqHeader)
-}
-
-func (c *Client) Dial(addr string, token string, reqHeader http.Header) (*Conn, *http.Response, error) {
-	return c.DialContext(context.Background(), addr, token, reqHeader)
-}
-
 func (c *Client) do(ctx context.Context, meta *Meta, reqHeader http.Header) (*Conn, *http.Response, error) {
+	log := c.cfg.Logger.With("token", meta.Token)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	socket, err := NewSocket(ctx, 0, c.TlsConfig)
+	socket, err := NewSocket(ctx, 0, c.cfg.TlsConfig)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -133,23 +139,26 @@ func (c *Client) do(ctx context.Context, meta *Meta, reqHeader http.Header) (*Co
 		candidates         = make(chan *Conn, 32)
 		chooser    Chooser = lnChoose
 	)
-	meta.SelfAddrs = c.selfAddrs(ctx, socket)
+	selfAddrs := c.cfg.SelfAddrFunc(ctx, socket)
+	meta.SelfAddrs = filter(selfAddrs, func(addr netip.AddrPort) bool {
+		return c.cfg.AddrSpaces.Includes(GetAddrSpace(addr.Addr()))
+	})
 
 	relay, resp, err := dialRdvServer(ctx, socket, meta, reqHeader)
 	if err != nil {
 		return nil, resp, err
 	}
 	if meta.IsDialer {
-		chooser = c.dialChooser()
+		chooser = c.cfg.DialChooser
 	}
 	ncs <- relay // add relay conn
 
-	c.logf(meta.clientSummary())
-	go c.dialAndListen(relay, socket, ncs)
-	go c.peerShake(ncs, candidates)
+	log.Debug("rdv client: connecting to peer", "observed", meta.ObservedAddr, "self_addrs", meta.SelfAddrs, "peer_addrs", meta.PeerAddrs)
+	go dialAndListen(log, c.cfg.AddrSpaces, relay, socket, ncs)
+	go peerShake(log, ncs, candidates)
 	chosen, unchosen := chooser(cancel, candidates)
 	for _, conn := range unchosen {
-		c.logf("discard %v", conn.RemoteAddr())
+		log.Debug("rdv client: closing unchosen", "addr", conn.RemoteAddr())
 		conn.Close()
 	}
 	if chosen == nil {
@@ -165,7 +174,7 @@ func (c *Client) do(ctx context.Context, meta *Meta, reqHeader http.Header) (*Co
 	return chosen, nil, nil
 }
 
-func (c *Client) dialAndListen(relay *Conn, s *Socket, ncs chan *Conn) {
+func dialAndListen(log *slog.Logger, spaces AddrSpace, relay *Conn, s *Socket, ncs chan *Conn) {
 	var (
 		wg sync.WaitGroup
 	)
@@ -177,8 +186,9 @@ func (c *Client) dialAndListen(relay *Conn, s *Socket, ncs chan *Conn) {
 		s.Close()
 	}()
 	for _, addr := range relay.meta.PeerAddrs {
-		if err := AcceptableAddr(addr); err != nil {
-			c.logf("dial %v: %v", addr, err)
+		space := GetAddrSpace(addr.Addr())
+		if !spaces.Includes(space) { // TODO: Perhaps log the addr space
+			log.Debug("rdv client: skip outbound", "addr", addr, "space", space)
 			continue
 		}
 		wg.Add(1)
@@ -186,7 +196,7 @@ func (c *Client) dialAndListen(relay *Conn, s *Socket, ncs chan *Conn) {
 			defer wg.Done()
 			nc, err := s.DialIPContext(ctx, addr)
 			if err != nil {
-				c.logf("dial %v: %v", addr, unwrapOp(err))
+				log.Debug("rdv client: dial failed", "addr", addr, "err", unwrapOp(err))
 				return
 			}
 			ncs <- newDirectConn(nc, relay.meta, relay.req)
@@ -197,6 +207,12 @@ func (c *Client) dialAndListen(relay *Conn, s *Socket, ncs chan *Conn) {
 		if err != nil {
 			break
 		}
+		addr, space := FromNetAddr(nc.RemoteAddr())
+		if err != nil || !spaces.Includes(space) {
+			log.Debug("rdv client: close inbound", "addr", addr, "err", errors.New("disabled addr space"))
+			nc.Close()
+			continue // Log error
+		}
 		ncs <- newDirectConn(nc, relay.meta, relay.req)
 	}
 	wg.Wait()
@@ -204,7 +220,7 @@ func (c *Client) dialAndListen(relay *Conn, s *Socket, ncs chan *Conn) {
 	// success, otherwise relay
 }
 
-func (c *Client) peerShake(in chan *Conn, out chan *Conn) {
+func peerShake(log *slog.Logger, in chan *Conn, out chan *Conn) {
 	var (
 		cArr = []net.Conn{}
 		wg   sync.WaitGroup
@@ -216,7 +232,7 @@ func (c *Client) peerShake(in chan *Conn, out chan *Conn) {
 			defer wg.Done()
 			err := conn.clientHand()
 			if err != nil {
-				c.logf("shake %v %v", conn.RemoteAddr(), unwrapOp(err))
+				log.Debug("rdv client: shake failed", "addr", conn.RemoteAddr(), "err", unwrapOp(err))
 				conn.Close()
 				return
 			}

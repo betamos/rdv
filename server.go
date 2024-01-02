@@ -3,7 +3,7 @@ package rdv
 import (
 	"context"
 	"errors"
-	"fmt"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"os"
@@ -25,22 +25,30 @@ type ServerConfig struct {
 	// Determines the remote addr:port from the client request, and adds it to the set of
 	// candidate addrs sent to the other peer. If nil, `req.RemoteAddr` is used.
 	// If your server is behind a load balancer, reverse proxy or similar, you may need to extract
-	// the address using forwarding headers. To disable this feature, return "". See the server
-	// setup guide for details.
+	// the address using forwarding headers. To disable this feature, return an error.
+	// See the server setup guide for details.
 	ObservedAddrFunc func(req *http.Request) (netip.AddrPort, error)
 
 	// Logging function.
-	Logf func(string, ...interface{})
+	Logger *slog.Logger
 }
 
-var DefaultServerConfig = &ServerConfig{
-	ServeFunc: DefaultHandler,
+func (c *ServerConfig) setDefaults() {
+	if c.ServeFunc == nil {
+		c.ServeFunc = DefaultHandler
+	}
+	if c.ObservedAddrFunc == nil {
+		c.ObservedAddrFunc = DefaultObservedAddr
+	}
+	if c.Logger == nil {
+		c.Logger = slog.Default()
+	}
 }
 
 type Server struct {
-	cfg    *ServerConfig
+	cfg    ServerConfig
 	idle   map[string]*Conn
-	connCh chan *Conn // Incoming upgraded conns: request redeivec, no response sent, no deadline
+	connCh chan *Conn // Incoming upgraded conns: request received, no response sent, no deadline
 
 	monCh chan string // token sent when current conn mapping is complete
 
@@ -51,44 +59,28 @@ type Server struct {
 	mu     sync.RWMutex
 }
 
-func (l *Server) logf(format string, v ...interface{}) {
-	if l.cfg.Logf == nil {
-		return
-	}
-	l.cfg.Logf(format+"\n", v...)
-}
-
 func NewServer(cfg *ServerConfig) *Server {
-	if cfg == nil {
-		cfg = DefaultServerConfig
-	}
-	l := &Server{
-		cfg:   cfg,
+	s := &Server{
 		monCh: make(chan string, 8),
 		idle:  make(map[string]*Conn),
 
 		connCh: make(chan *Conn, 8),
 	}
-	return l
+
+	if cfg != nil {
+		s.cfg = *cfg
+	}
+	s.cfg.setDefaults()
+	return s
 }
 
-func DefaultObservedAddr(r *http.Request) (addr netip.AddrPort, err error) {
-	if addr, err = netip.ParseAddrPort(r.RemoteAddr); err != nil {
-		return
-	}
-	if err = GoodObservedAddr(addr); err != nil {
-		err = fmt.Errorf("%v: %w", addr, err)
-	}
-	return
+func DefaultObservedAddr(r *http.Request) (netip.AddrPort, error) {
+	return netip.ParseAddrPort(r.RemoteAddr)
 }
 
 func (l *Server) addObservedAddr(conn *Conn) {
-	fn := l.cfg.ObservedAddrFunc
-	if fn == nil {
-		fn = DefaultObservedAddr
-	}
-	if observedAddr, err := fn(conn.req); err != nil {
-		l.logf("ignore observed addr %v", err)
+	if observedAddr, err := l.cfg.ObservedAddrFunc(conn.req); err != nil {
+		l.cfg.Logger.Warn("rdv server: could not get observed addr", "err", err)
 	} else {
 		conn.meta.ObservedAddr = &observedAddr
 	}
@@ -113,7 +105,7 @@ func (l *Server) AddClient(w http.ResponseWriter, req *http.Request) error {
 func (l *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	err := l.AddClient(w, r)
 	if err != nil {
-		l.logf("%v %v %v: %v", r.RemoteAddr, r.Method, r.URL.Path, err)
+		l.cfg.Logger.Info("rdv server: bad request", "request", r, "err", err)
 	}
 }
 
@@ -168,15 +160,11 @@ func (l *Server) kickOut(token string) {
 	delete(l.idle, token)
 	// If there was a previous protocol error, this won't do anything because the conn is closed
 	writeResponseErr(conn, http.StatusRequestTimeout, "no matching peer found")
-	l.logf("left: %v", conn.meta.serverSummary())
-}
-
-func (l *Server) Serve() error {
-	return l.ServeContext(context.Background())
+	l.cfg.Logger.Debug("rdv server: client timed out", "token", conn.meta.Token, "addr", conn.meta.ObservedAddr)
 }
 
 // Runs the goroutines associated with the Server.
-func (l *Server) ServeContext(ctx context.Context) error {
+func (l *Server) Serve(ctx context.Context) error {
 	wg := sync.WaitGroup{}
 	defer wg.Wait()
 	ctxCh := ctx.Done()
@@ -191,7 +179,7 @@ func (l *Server) ServeContext(ctx context.Context) error {
 			l.kickOut(token)
 		case conn, ok := <-l.connCh:
 			if !ok {
-				l.logf("shutdown: %v idle conns", len(l.idle))
+				l.cfg.Logger.Info("rdv server: shutting down", "lobby_conns", len(l.idle))
 				l.connCh = nil // blocks forever, leaving monCh the only remaining channel
 				//cancel()
 				// no more conns, shutting down
@@ -206,25 +194,25 @@ func (l *Server) ServeContext(ctx context.Context) error {
 				// happy path: the conn and idle conn are a match
 				idleConn.SetDeadline(time.Time{})
 				// Methods are unequal, we found a pair
+				dc, ac := idleConn, conn
+				if ac.meta.IsDialer {
+					dc, ac = ac, dc // swap
+				}
 				wg.Add(1)
-				go func() {
+				go func(dc, ac *Conn) {
 					defer wg.Done()
-					dc, ac := idleConn, conn
-					if ac.meta.IsDialer {
-						dc, ac = ac, dc // swap
-					}
 					l.cfg.ServeFunc(ctx, dc, ac)
-				}()
-				l.logf("matched: %v", conn.meta.Token)
+				}(dc, ac)
+				l.cfg.Logger.Info("rdv server: matched", "token", conn.meta.Token, "dial_addr", dc.meta.ObservedAddr, "accept_addr", ac.meta.ObservedAddr)
 				continue
 			}
 			// either there is no conn of the same token, or there's another of the same method
 			l.addIdle(conn)
 			// if conn is same method, kick the old one out
 			if idleConn == nil {
-				l.logf("joined: %v", conn.meta.serverSummary())
+				l.cfg.Logger.Debug("rdv server: joined", "token", conn.meta.Token, "addr", conn.meta.ObservedAddr)
 			} else {
-				l.logf("replaced: %v", idleConn.meta.serverSummary())
+				l.cfg.Logger.Debug("rdv server: replaced", "client", conn.meta.Token, "addr", conn.meta.ObservedAddr)
 				writeResponseErr(idleConn, http.StatusConflict, "replaced by another conn")
 			}
 		}

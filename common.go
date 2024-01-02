@@ -48,45 +48,88 @@ func DefaultSelfAddrs(ctx context.Context, socket *Socket) []netip.AddrPort {
 		}
 		prefixAddr := netip.MustParsePrefix(netAddr.String())
 		addr := netip.AddrPortFrom(prefixAddr.Addr(), socket.Port)
-		if GoodSelfAddr(addr) == nil {
-			addrs = append(addrs, netip.AddrPortFrom(addr.Addr(), socket.Port))
-		}
+		addrs = append(addrs, addr)
 	}
 	return addrs
 }
 
-func AcceptableAddr(addr netip.AddrPort) error {
-	if addr.Port() < 1024 {
-		// Let's not dial any system ports
-		return ErrPrivilegedPort
+// IP address space, in order to differentiate between meaningful addrs.
+// Link-local ipv6 addrs are not recommended with rdv due to zones.
+type AddrSpace uint32
+
+const (
+	SpaceInvalid AddrSpace = 0
+	SpacePublic4           = 1 << iota
+	SpacePublic6
+	SpacePrivate4
+	SpacePrivate6
+	SpaceLink4
+	SpaceLink6
+	SpaceLoopback
+)
+
+// Provides connectivity in almost all cases.
+// Private v6 is disabled for noise - almost all private networks have ipv4 support.
+const (
+	PublicSpaces  AddrSpace = SpacePublic4 | SpacePublic6
+	DefaultSpaces AddrSpace = SpacePublic4 | SpacePublic6 | SpacePrivate4
+	AllSpaces     AddrSpace = ^SpaceInvalid //SpacePublic4 | SpacePublic6 | SpacePrivate4 | SpacePrivate6 | SpaceLink4 | SpaceLink6 | SpaceLoopback
+)
+
+func (s AddrSpace) Includes(space AddrSpace) bool {
+	return space&s != 0
+}
+
+func (s AddrSpace) String() string {
+	switch s {
+	case SpacePublic4:
+		return "public4"
+	case SpacePublic6:
+		return "public6"
+	case SpacePrivate4:
+		return "private4"
+	case SpacePrivate6:
+		return "private6"
+	case SpaceLink4:
+		return "link4"
+	case SpaceLink6:
+		return "link6"
 	}
-	ip := addr.Addr()
+	return "invalid"
+}
+
+// Get AddrPort and AddrSpace from a TCP net.Addr
+func FromNetAddr(na net.Addr) (addr netip.AddrPort, space AddrSpace) {
+	addr, _ = netip.ParseAddrPort(na.String())
+	space = GetAddrSpace(addr.Addr())
+	return
+}
+
+func GetAddrSpace(ip netip.Addr) AddrSpace {
+	// TODO: Check what to do about ipv4-mapped ipv6 addresses
 	if !ip.IsValid() || ip.IsUnspecified() || ip.IsMulticast() {
-		return ErrInvalidAddr
+		return SpaceInvalid
 	}
-	return nil
-}
-
-func GoodSelfAddr(addr netip.AddrPort) error {
-	if err := AcceptableAddr(addr); err != nil {
-		return err
+	if ip.IsLoopback() {
+		return SpaceLoopback
 	}
-	ip := addr.Addr()
-	if ip.Is6() && ip.IsPrivate() || !ip.IsGlobalUnicast() {
-		// Disable due to marginal chances of increased connectivity
-		return ErrDontUse
+	if ip.IsLinkLocalUnicast() {
+		if ip.Is4() {
+			return SpaceLink4
+		}
+		return SpaceLink6
 	}
-	return nil
-}
-
-func GoodObservedAddr(addr netip.AddrPort) error {
-	if err := AcceptableAddr(addr); err != nil {
-		return err
+	if ip.IsPrivate() {
+		if ip.Is4() {
+			return SpacePrivate4
+		}
+		return SpacePrivate6
 	}
-	ip := addr.Addr()
-	if ip.Is6() || ip.IsPrivate() || ip.IsLoopback() {
-		// Disable due to marginal chances of increased connectivity
-		return ErrDontUse
+	if ip.IsGlobalUnicast() {
+		if ip.Is4() {
+			return SpacePublic4
+		}
+		return SpacePublic6
 	}
-	return nil
+	return SpaceInvalid
 }

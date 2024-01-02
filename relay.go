@@ -89,7 +89,7 @@ func initiateRelay(to, from *Conn) error {
 }
 
 // Copies data with the configured tap
-func copyRelay(to, from *Conn, tap io.Writer, it *idleTimer) (n int64, err error) {
+func copyRelay(to io.Writer, from io.Reader, tap io.Writer, it *idleTimer) (n int64, err error) {
 	var w io.Writer = it
 	if tap != nil {
 		w = io.MultiWriter(it, tap)

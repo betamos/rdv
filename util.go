@@ -170,3 +170,13 @@ func unwrapOp(err error) error {
 	}
 	return err
 }
+
+// Filters and returns a new slice where fn returns true
+func filter[T any](ts []T, fn func(t T) bool) (ret []T) {
+	for _, t := range ts {
+		if fn(t) {
+			ret = append(ret, t)
+		}
+	}
+	return
+}
