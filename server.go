@@ -120,10 +120,10 @@ func (l *Server) close() {
 
 func (l *Server) addIdle(conn *Conn) {
 	l.idle[conn.meta.Token] = conn
+	conn.SetDeadline(cfgDeadline(l.cfg.LobbyTimeout))
 	//l.wg.Add(1)
 	go func() {
 		//defer l.wg.Done()
-		conn.SetDeadline(cfgDeadline(l.cfg.LobbyTimeout))
 		n, err := conn.Read(make([]byte, 1))
 		if !(n == 0 && errors.Is(err, os.ErrDeadlineExceeded)) {
 			writeResponseErr(conn, http.StatusBadRequest, "conn must idle while waiting for response header")
