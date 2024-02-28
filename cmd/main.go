@@ -5,12 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
 	"time"
-
-	"github.com/lmittmann/tint"
 
 	"github.com/betamos/rdv"
 )
@@ -34,15 +33,10 @@ func init() {
 func main() {
 	var err error
 	flag.Parse()
-	var level = slog.LevelInfo
 	if flagVerbose {
-		level = slog.LevelDebug
+		slog.SetLogLoggerLevel(slog.LevelDebug)
 	}
-	handler := tint.NewHandler(os.Stderr, &tint.Options{
-		Level:      level,
-		TimeFormat: time.TimeOnly,
-	})
-	slog.SetDefault(slog.New(handler))
+	log.SetFlags(log.Ltime)
 	command := flag.Arg(0)
 	switch command {
 	case "s", "serve":
