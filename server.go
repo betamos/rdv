@@ -105,7 +105,7 @@ func (l *Server) AddClient(w http.ResponseWriter, req *http.Request) error {
 func (l *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	err := l.AddClient(w, r)
 	if err != nil {
-		l.cfg.Logger.Info("rdv server: bad request", "request", r, "err", err)
+		l.cfg.Logger.Info("rdv server: bad request", "request", r.URL, "err", err)
 	}
 }
 
