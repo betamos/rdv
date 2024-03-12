@@ -43,6 +43,11 @@ func (c *Conn) Meta() *Meta {
 	return c.meta
 }
 
+// Returns the http request for this conn. Read-only, so don't use its context or body.
+func (c *Conn) Request() *http.Request {
+	return c.req
+}
+
 func (c *Conn) IsRelay() bool {
 	return c.isRelay
 }
