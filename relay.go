@@ -45,10 +45,13 @@ func (r *Relayer) Run(ctx context.Context, dc, ac *Conn) (dn int64, an int64, er
 	dTap, aTap := r.taps()
 
 	// Start only one extra goroutine to save resources
+	done := make(chan struct{})
 	go func() {
 		dn = copyRelay(ac, dc, dTap, it, cancel)
+		close(done)
 	}()
 	an = copyRelay(dc, ac, aTap, it, cancel)
+	<-done
 	err = context.Cause(ctx)
 	return
 }
