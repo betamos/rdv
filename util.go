@@ -10,7 +10,6 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
-	"sync/atomic"
 	"time"
 )
 
@@ -116,50 +115,22 @@ func expectStr(r io.Reader, str string) error {
 }
 
 type idleTimer struct {
-	ctx     context.Context
 	timeout time.Duration
-	dirty   uint32 // atomic bool
+	timer   *time.Timer
 }
 
-func newIdleTimer(ctx context.Context, timeout time.Duration) *idleTimer {
-	return &idleTimer{ctx, timeout, 0}
+func newIdleTimer(timeout time.Duration, cb func()) *idleTimer {
+	return &idleTimer{timeout, time.AfterFunc(timeout, cb)}
 }
 
 // Registers activity and prolongs the deadline
-func (t *idleTimer) Extend() {
-	atomic.StoreUint32(&t.dirty, 1)
-}
-
-// Resets the dirty state and returns whether it was extended
-func (t *idleTimer) reset() (extended bool) {
-	return atomic.SwapUint32(&t.dirty, 0) != 0
-}
-
 func (t *idleTimer) Write(p []byte) (int, error) {
-	t.Extend()
+	t.timer.Reset(t.timeout)
 	return len(p), nil
 }
 
-var ErrIdleTimeout = errors.New("periodic idle timeout exceeded")
-
-// Cleans up resources
-func (t *idleTimer) Wait() error {
-	var tickCh <-chan time.Time // Nil-channel blocks forever
-	if t.timeout > 0 {
-		ticker := time.NewTicker(t.timeout)
-		tickCh = ticker.C
-		defer ticker.Stop()
-	}
-	for {
-		select {
-		case <-tickCh:
-			if !t.reset() { // new, old
-				return ErrIdleTimeout
-			}
-		case <-t.ctx.Done():
-			return t.ctx.Err()
-		}
-	}
+func (t *idleTimer) Stop() {
+	t.timer.Stop()
 }
 
 // Unwraps any net.OpError to prevent address noise

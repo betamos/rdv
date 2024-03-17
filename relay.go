@@ -4,9 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 	"time"
-
-	"golang.org/x/sync/errgroup"
 )
 
 type Relayer struct {
@@ -29,39 +28,41 @@ func (r *Relayer) Reject(dc, ac *Conn, statusCode int, reason string) error {
 		writeResponseErr(ac, statusCode, reason))
 }
 
+// Runs the relay service. Return actual data transferred and the first error that occurred.
+// In case one end closed the connection in a normal manner, the error is io.EOF.
 func (r *Relayer) Run(ctx context.Context, dc, ac *Conn) (dn int64, an int64, err error) {
 
+	ctx, cancel := context.WithCancelCause(ctx)
+
+	// Causes all IO to return timeout errors immediately
+	timeoutFn := sync.OnceFunc(func() {
+		dc.SetDeadline(past())
+		ac.SetDeadline(past())
+	})
+	stop := context.AfterFunc(ctx, timeoutFn)
+	defer stop()
+
+	it := newIdleTimer(r.IdleTimeout, timeoutFn)
+	defer it.Stop()
 	dTap, aTap := r.taps()
 
-	// TODO(go-1.20): Replace with cancellation cause
-	g, ctx := errgroup.WithContext(ctx)
+	// Start only one extra goroutine to save resources
+	go func() {
+		dn = copyRelay(ac, dc, dTap, it, cancel)
+	}()
+	an = copyRelay(dc, ac, aTap, it, cancel)
+	err = context.Cause(ctx)
+	return
+}
 
-	it := newIdleTimer(ctx, r.IdleTimeout) // use group context to cancel properly
-	g.Go(it.Wait)                          // idle timeout
-	g.Go(func() error {
-		err := initiateRelay(ac, dc) // Rock on!
-		if err != nil {
-			return err
-		}
-		it.Extend()
-		dn, err = copyRelay(ac, dc, dTap, it)
-		return err
-	})
-	g.Go(func() error {
-		err := initiateRelay(dc, ac)
-		if err != nil {
-			return err
-		}
-		an, err = copyRelay(dc, ac, aTap, it)
-		return err
-	})
-	<-ctx.Done()
-	dc.Close()
-	ac.Close()
-	err = g.Wait()
-	if err == io.EOF {
-		err = nil
+func copyRelay(to, from *Conn, tap io.Writer, it *idleTimer, cancel context.CancelCauseFunc) (n int64) {
+	defer to.Close()
+	err := initiateRelay(to, from)
+	if err != nil {
+		return
 	}
+	n, err = copyRelayInner(to, from, tap, it)
+	cancel(err)
 	return
 }
 
@@ -89,7 +90,7 @@ func initiateRelay(to, from *Conn) error {
 }
 
 // Copies data with the configured tap
-func copyRelay(to io.Writer, from io.Reader, tap io.Writer, it *idleTimer) (n int64, err error) {
+func copyRelayInner(to io.WriteCloser, from io.Reader, tap io.Writer, it *idleTimer) (n int64, err error) {
 	w := io.MultiWriter(it, tap, to)
 	n, err = io.Copy(w, from)
 	if err == nil {
