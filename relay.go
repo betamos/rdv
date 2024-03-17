@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"sync"
 	"time"
 )
 
+// A relayer handles a pair of rdv conns. The zero-value can be used.
 type Relayer struct {
 	DialTap, AcceptTap io.Writer
 
@@ -16,10 +18,6 @@ type Relayer struct {
 	// application level heartbeats. Zero means no timeout.
 	// As relays may serve a lot of traffic, activity is checked at an interval.
 	IdleTimeout time.Duration
-}
-
-var DefaultRelayer = &Relayer{
-	IdleTimeout: time.Minute,
 }
 
 func (r *Relayer) Reject(dc, ac *Conn, statusCode int, reason string) error {

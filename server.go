@@ -16,10 +16,10 @@ type ServerConfig struct {
 	LobbyTimeout time.Duration
 
 	// Function to serve a relay connection between dialer and server.
-	// The provided context is canceled along with the server.
-	// The function is responsible for closing the connections.
+	// The provided context is canceled when the server is closed.
+	// The function is responsible for closing conns.
 	// Used to customize monitoring, rate limiting, idle timeouts relating to relay
-	// connections. See RelayConfig for defaults.
+	// connections. Defaults to `DefaultServeFunc`.
 	ServeFunc func(ctx context.Context, dc, ac *Conn)
 
 	// Determines the remote addr:port from the client request, and adds it to the set of
@@ -35,7 +35,7 @@ type ServerConfig struct {
 
 func (c *ServerConfig) setDefaults() {
 	if c.ServeFunc == nil {
-		c.ServeFunc = DefaultHandler
+		c.ServeFunc = DefaultServeFunc
 	}
 	if c.ObservedAddrFunc == nil {
 		c.ObservedAddrFunc = DefaultObservedAddr
@@ -203,7 +203,6 @@ func (l *Server) Serve(ctx context.Context) error {
 					defer wg.Done()
 					l.cfg.ServeFunc(ctx, dc, ac)
 				}(dc, ac)
-				l.cfg.Logger.Info("rdv server: matched", "token", conn.meta.Token, "dial_addr", dc.meta.ObservedAddr, "accept_addr", ac.meta.ObservedAddr)
 				continue
 			}
 			// either there is no conn of the same token, or there's another of the same method
@@ -220,6 +219,7 @@ func (l *Server) Serve(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func DefaultHandler(ctx context.Context, dc, ac *Conn) {
-	DefaultRelayer.Run(ctx, dc, ac)
+// Handler which simply relays data without timeouts or taps.
+func DefaultServeFunc(ctx context.Context, dc, ac *Conn) {
+	new(Relayer).Run(ctx, dc, ac)
 }

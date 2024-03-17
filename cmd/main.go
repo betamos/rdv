@@ -55,11 +55,22 @@ func main() {
 }
 
 func server() error {
-	server := rdv.NewServer(nil)
+	server := rdv.NewServer(&rdv.ServerConfig{
+		ServeFunc: handler,
+	})
 	http.Handle("/", server)
 	go server.Serve(context.Background())
-	slog.Info("server: listening", "addr", flagLAddr)
+	slog.Info("listening", "addr", flagLAddr)
 	return http.ListenAndServe(flagLAddr, nil)
+}
+
+func handler(ctx context.Context, dc, ac *rdv.Conn) {
+	token := dc.Meta().Token
+	slog.Info("matched", "token", token, "dial_addr", dc.Meta().ObservedAddr, "accept_addr", ac.Meta().ObservedAddr)
+
+	r := new(rdv.Relayer)
+	dn, an, err := r.Run(ctx, dc, ac)
+	slog.Info("finished", "token", dc.Meta().Token, "dial_bytes", dn, "accept_bytes", an, "err", err)
 }
 
 func client(dialer bool) error {
