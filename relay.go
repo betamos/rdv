@@ -24,9 +24,9 @@ var DefaultRelayer = &Relayer{
 }
 
 func (r *Relayer) Reject(dc, ac *Conn, statusCode int, reason string) error {
-	dErr := writeResponseErr(dc, statusCode, reason)
-	aErr := writeResponseErr(ac, statusCode, reason)
-	return errors.Join(dErr, aErr)
+	return errors.Join(
+		writeResponseErr(dc, statusCode, reason),
+		writeResponseErr(ac, statusCode, reason))
 }
 
 func (r *Relayer) Run(ctx context.Context, dc, ac *Conn) (dn int64, an int64, err error) {
