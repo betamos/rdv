@@ -16,7 +16,10 @@ import (
 
 var (
 	flagVerbose bool
+	flagRelay   bool
 	flagLAddr   string
+
+	spaces = rdv.DefaultSpaces
 )
 
 func usage() {
@@ -28,6 +31,7 @@ func init() {
 	flag.Usage = usage
 	flag.StringVar(&flagLAddr, "l", ":8080", "listening addr for serve")
 	flag.BoolVar(&flagVerbose, "v", false, "print verbose logs")
+	flag.BoolVar(&flagRelay, "r", false, "client: force using the relay even if p2p is possible")
 }
 
 func main() {
@@ -35,6 +39,9 @@ func main() {
 	flag.Parse()
 	if flagVerbose {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
+	}
+	if flagRelay {
+		spaces = rdv.NoSpaces
 	}
 	log.SetFlags(log.Ltime)
 	command := flag.Arg(0)
@@ -75,7 +82,7 @@ func handler(ctx context.Context, dc, ac *rdv.Conn) {
 
 func client(dialer bool) error {
 	client := rdv.NewClient(&rdv.ClientConfig{
-		AddrSpaces: rdv.DefaultSpaces,
+		AddrSpaces: spaces,
 	})
 	addr := flag.Arg(1)
 	token := flag.Arg(2)
