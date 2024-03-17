@@ -2,6 +2,7 @@ package rdv
 
 import (
 	"context"
+	"errors"
 	"io"
 	"time"
 
@@ -28,7 +29,9 @@ func (r *Relayer) Reject(dc, ac *Conn, statusCode int, reason string) error {
 	return errors.Join(dErr, aErr)
 }
 
-func (r *Relayer) Run(ctx context.Context, dc, ac *Conn) (dn int64, ln int64, err error) {
+func (r *Relayer) Run(ctx context.Context, dc, ac *Conn) (dn int64, an int64, err error) {
+
+	dTap, aTap := r.taps()
 
 	// TODO(go-1.20): Replace with cancellation cause
 	g, ctx := errgroup.WithContext(ctx)
@@ -41,7 +44,7 @@ func (r *Relayer) Run(ctx context.Context, dc, ac *Conn) (dn int64, ln int64, er
 			return err
 		}
 		it.Extend()
-		dn, err = copyRelay(ac, dc, r.DialTap, it)
+		dn, err = copyRelay(ac, dc, dTap, it)
 		return err
 	})
 	g.Go(func() error {
@@ -49,7 +52,7 @@ func (r *Relayer) Run(ctx context.Context, dc, ac *Conn) (dn int64, ln int64, er
 		if err != nil {
 			return err
 		}
-		ln, err = copyRelay(dc, ac, r.AcceptTap, it)
+		an, err = copyRelay(dc, ac, aTap, it)
 		return err
 	})
 	<-ctx.Done()
@@ -87,13 +90,28 @@ func initiateRelay(to, from *Conn) error {
 
 // Copies data with the configured tap
 func copyRelay(to io.Writer, from io.Reader, tap io.Writer, it *idleTimer) (n int64, err error) {
-	var w io.Writer = it
-	if tap != nil {
-		w = io.MultiWriter(it, tap)
-	}
-	n, err = io.Copy(to, io.TeeReader(from, w))
+	w := io.MultiWriter(it, tap, to)
+	n, err = io.Copy(w, from)
 	if err == nil {
 		err = io.EOF
 	}
 	return
+}
+
+// Utility to get non-nil taps
+func (r *Relayer) taps() (dTap, aTap io.Writer) {
+	dTap, aTap = r.DialTap, r.AcceptTap
+	if dTap == nil {
+		dTap = noopTap{}
+	}
+	if aTap == nil {
+		aTap = noopTap{}
+	}
+	return
+}
+
+type noopTap struct{}
+
+func (noopTap) Write(p []byte) (n int, err error) {
+	return len(p), nil
 }
