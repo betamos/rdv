@@ -42,7 +42,7 @@ func (r *Relayer) Run(ctx context.Context, dc, ac *Conn) (dn int64, an int64, er
 	stop := context.AfterFunc(ctx, timeoutFn)
 	defer stop()
 
-	it := newIdleTimer(r.IdleTimeout, timeoutFn)
+	it := newIdleTimer(r.idleTimeout(), timeoutFn)
 	defer it.Stop()
 	dTap, aTap := r.taps()
 
@@ -97,6 +97,13 @@ func copyRelayInner(to io.WriteCloser, from io.Reader, tap io.Writer, it *idleTi
 		err = io.EOF
 	}
 	return
+}
+
+func (r *Relayer) idleTimeout() time.Duration {
+	if r.IdleTimeout > 0 {
+		return r.IdleTimeout
+	}
+	return math.MaxInt64
 }
 
 // Utility to get non-nil taps
