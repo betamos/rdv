@@ -38,12 +38,14 @@ func main() {
 	var err error
 	flag.Parse()
 	if flagVerbose {
+		log.SetFlags(log.Lmicroseconds)
 		slog.SetLogLoggerLevel(slog.LevelDebug)
+	} else {
+		log.SetFlags(log.Ltime)
 	}
 	if flagRelay {
 		spaces = rdv.NoSpaces
 	}
-	log.SetFlags(log.Ltime)
 	command := flag.Arg(0)
 	switch command {
 	case "s", "serve":
