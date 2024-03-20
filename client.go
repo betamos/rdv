@@ -3,7 +3,6 @@ package rdv
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -152,14 +151,14 @@ func (c *Client) do(ctx context.Context, meta *Meta, reqHeader http.Header) (*Co
 		chooser = c.cfg.DialChooser
 	}
 
-	log.Debug("rdv client: connecting to peer", "observed", meta.ObservedAddr, "self_addrs", meta.SelfAddrs, "peer_addrs", meta.PeerAddrs)
+	log.Debug("rdv: dial", "is_dialer", meta.IsDialer, "observed", meta.ObservedAddr, "self_addrs", meta.SelfAddrs)
 	go dialAndListen(log, c.cfg.AddrSpaces, relay, socket, ncs)
 	go peerShake(log, ncs, candidates)
 	ncs <- relay // add relay conn here to prevent deadlock
 
 	chosen, unchosen := chooser(cancel, candidates)
 	for _, conn := range unchosen {
-		log.Debug("rdv client: closing unchosen", "addr", conn.RemoteAddr())
+		log.Debug("rdv: discard", "addr", conn.RemoteAddr())
 		conn.Close()
 	}
 	if chosen == nil {
@@ -189,7 +188,7 @@ func dialAndListen(log *slog.Logger, spaces AddrSpace, relay *Conn, s *Socket, n
 	for _, addr := range relay.meta.PeerAddrs {
 		space := GetAddrSpace(addr.Addr())
 		if !spaces.Includes(space) { // TODO: Perhaps log the addr space
-			log.Debug("rdv client: skip outbound", "addr", addr, "space", space)
+			log.Debug("rdv: skip", "addr", addr, "space", space)
 			continue
 		}
 		wg.Add(1)
@@ -197,7 +196,7 @@ func dialAndListen(log *slog.Logger, spaces AddrSpace, relay *Conn, s *Socket, n
 			defer wg.Done()
 			nc, err := s.DialIPContext(ctx, addr)
 			if err != nil {
-				log.Debug("rdv client: dial failed", "addr", addr, "err", unwrapOp(err))
+				log.Debug("rdv: dial err", "addr", addr, "err", unwrapOp(err))
 				return
 			}
 			ncs <- newDirectConn(nc, relay.meta, relay.req)
@@ -209,8 +208,8 @@ func dialAndListen(log *slog.Logger, spaces AddrSpace, relay *Conn, s *Socket, n
 			break
 		}
 		addr, space := FromNetAddr(nc.RemoteAddr())
-		if err != nil || !spaces.Includes(space) {
-			log.Debug("rdv client: close inbound", "addr", addr, "err", errors.New("disabled addr space"))
+		if !spaces.Includes(space) {
+			log.Debug("rdv: reject", "addr", addr, "space", space)
 			nc.Close()
 			continue // Log error
 		}
@@ -233,10 +232,12 @@ func peerShake(log *slog.Logger, in chan *Conn, out chan *Conn) {
 			defer wg.Done()
 			err := conn.clientHand()
 			if err != nil {
-				log.Debug("rdv client: shake failed", "addr", conn.RemoteAddr(), "err", unwrapOp(err))
+				log.Debug("rdv: shake err", "addr", conn.RemoteAddr(), "err", unwrapOp(err))
 				conn.Close()
 				return
 			}
+			log.Debug("rdv: shake ok", "addr", conn.RemoteAddr())
+
 			out <- conn
 		}(conn)
 	}
