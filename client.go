@@ -135,8 +135,8 @@ func (c *Client) do(ctx context.Context, meta *Meta, reqHeader http.Header) (*Co
 	defer socket.Close()
 
 	var (
-		ncs                = make(chan *Conn, 32)
-		candidates         = make(chan *Conn, 32)
+		ncs                = make(chan *Conn)
+		candidates         = make(chan *Conn)
 		chooser    Chooser = lnChoose
 	)
 	selfAddrs := c.cfg.SelfAddrFunc(ctx, socket)
@@ -151,11 +151,12 @@ func (c *Client) do(ctx context.Context, meta *Meta, reqHeader http.Header) (*Co
 	if meta.IsDialer {
 		chooser = c.cfg.DialChooser
 	}
-	ncs <- relay // add relay conn
 
 	log.Debug("rdv client: connecting to peer", "observed", meta.ObservedAddr, "self_addrs", meta.SelfAddrs, "peer_addrs", meta.PeerAddrs)
 	go dialAndListen(log, c.cfg.AddrSpaces, relay, socket, ncs)
 	go peerShake(log, ncs, candidates)
+	ncs <- relay // add relay conn here to prevent deadlock
+
 	chosen, unchosen := chooser(cancel, candidates)
 	for _, conn := range unchosen {
 		log.Debug("rdv client: closing unchosen", "addr", conn.RemoteAddr())
