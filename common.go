@@ -53,6 +53,33 @@ func DefaultSelfAddrs(ctx context.Context, socket *Socket) []netip.AddrPort {
 	return addrs
 }
 
+const (
+	v4pub = "8.8.8.8:80"
+	v6pub = "[2001:4860:4860::8888]:80"
+)
+
+// Get the ipv4+ipv6 addrs for the default routes only, max 2.
+func DefaultRouteSelfAddrs(ctx context.Context, socket *Socket) (addrs []netip.AddrPort) {
+	// TODO: We might need to set these laddrs on the socket dialers,
+	// in case we get a different outbound ipv6 addr for the tcp conn.
+	v4, _ := localIpFor(v4pub)
+	v6, _ := localIpFor(v6pub)
+	addrs = append(addrs, netip.AddrPortFrom(v4, socket.Port))
+	addrs = append(addrs, netip.AddrPortFrom(v6, socket.Port))
+	return addrs
+}
+
+// Get local ip for an outbound conn, without actually sending any traffic.
+func localIpFor(ip string) (netip.Addr, error) {
+	conn, err := net.Dial("udp", ip)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	defer conn.Close()
+	nip := conn.LocalAddr().(*net.UDPAddr).AddrPort()
+	return nip.Addr(), nil
+}
+
 // An IP address space is derived from an IP address. These are used for connectivity in rdv, and
 // thus don't include multicast etc. order to differentiate between meaningful addrs.
 type AddrSpace uint32
