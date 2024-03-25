@@ -83,13 +83,21 @@ func RelayPenalty(penalty time.Duration) Chooser {
 }
 
 func withRelayPenalty(cancel func(), candidates chan *Conn, penalty time.Duration) (chosen *Conn, unchosen []*Conn) {
-	timer := time.AfterFunc(time.Hour, cancel)
+	start := time.Now()
+	timer := time.AfterFunc(10*time.Second, cancel)
 	defer timer.Stop()
 	for nc := range candidates {
+		//dur := time.Since(start)
 		if !nc.IsRelay() {
-			cancel()
+			//cancel()
+			_ = start
+
+			//addr, space := FromNetAddr(nc.RemoteAddr())
+			//slog.Info("p2p", "dur", dur.Round(time.Millisecond), "space", space, "addr", addr)
 		} else {
-			timer.Reset(penalty)
+			//slog.Info("relay", "dur", dur.Round(time.Millisecond))
+			//timer.Reset(3 * time.Second)
+			//timer.Reset(dur * 1) // penalty: 2 RTTs, picking relay after 3 RTT total
 		}
 		if chosen == nil {
 			chosen = nc
@@ -127,11 +135,19 @@ func (c *Client) do(ctx context.Context, meta *Meta, reqHeader http.Header) (*Co
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	socket, err := NewSocket(ctx, 0, c.cfg.TlsConfig)
+	iface, err := DefaultInterface()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	socket, err := NewSocket(ctx, iface, 0, c.cfg.TlsConfig)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer socket.Close()
+	v4, _ := localNetIpFor(v4pub)
+	v6, _ := localNetIpFor(v6pub)
+	socket.SetLocalAddrs(v4, v6)
 
 	var (
 		ncs                = make(chan *Conn)
@@ -139,9 +155,11 @@ func (c *Client) do(ctx context.Context, meta *Meta, reqHeader http.Header) (*Co
 		chooser    Chooser = lnChoose
 	)
 	selfAddrs := c.cfg.SelfAddrFunc(ctx, socket)
+	slog.Info("self addrs", "a", selfAddrs)
 	meta.SelfAddrs = filter(selfAddrs, func(addr netip.AddrPort) bool {
 		return c.cfg.AddrSpaces.Includes(GetAddrSpace(addr.Addr()))
 	})
+	slog.Info("filt addrs", "a", meta.SelfAddrs)
 
 	relay, resp, err := dialRdvServer(ctx, socket, meta, reqHeader)
 	if err != nil {
@@ -195,8 +213,9 @@ func dialAndListen(log *slog.Logger, spaces AddrSpace, relay *Conn, s *Socket, n
 		go func(addr netip.AddrPort) {
 			defer wg.Done()
 			nc, err := s.DialIPContext(ctx, addr)
+			space := GetAddrSpace(addr.Addr())
 			if err != nil {
-				log.Debug("rdv: dial err", "addr", addr, "err", unwrapOp(err))
+				log.Debug("rdv: dial err", "space", space, "addr", addr, "err", unwrapOp(err))
 				return
 			}
 			ncs <- newDirectConn(nc, relay.meta, relay.req)
@@ -209,7 +228,7 @@ func dialAndListen(log *slog.Logger, spaces AddrSpace, relay *Conn, s *Socket, n
 		}
 		addr, space := FromNetAddr(nc.RemoteAddr())
 		if !spaces.Includes(space) {
-			log.Debug("rdv: reject", "addr", addr, "space", space)
+			log.Debug("rdv: reject", "space", space, "addr", addr)
 			nc.Close()
 			continue // Log error
 		}
@@ -230,13 +249,14 @@ func peerShake(log *slog.Logger, in chan *Conn, out chan *Conn) {
 		wg.Add(1)
 		go func(conn *Conn) {
 			defer wg.Done()
+			addr, space := conn.Remote()
 			err := conn.clientHand()
 			if err != nil {
-				log.Debug("rdv: shake err", "addr", conn.RemoteAddr(), "err", unwrapOp(err))
+				log.Debug("rdv: shake err", "space", space, "addr", addr, "err", unwrapOp(err))
 				conn.Close()
 				return
 			}
-			log.Debug("rdv: shake ok", "addr", conn.RemoteAddr())
+			log.Debug("rdv: shake ok", "space", space, "addr", addr)
 
 			out <- conn
 		}(conn)

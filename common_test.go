@@ -2,8 +2,10 @@ package rdv
 
 import (
 	"log"
+	"net"
 	"net/netip"
 	"testing"
+	"time"
 )
 
 func TestGetAddrSpace(t *testing.T) {
@@ -14,7 +16,8 @@ func TestGetAddrSpace(t *testing.T) {
 		"loopback4":  {addr: "127.0.0.1", space: SpaceLoopback},
 		"loopback6":  {addr: "::1", space: SpaceLoopback},
 		"private4":   {addr: "192.168.0.2", space: SpacePrivate4},
-		"private6":   {addr: "fd12:3456:789a:1::1", space: SpacePrivate6},
+		"private6":   {addr: "fd00::1", space: SpacePrivate6},
+		"private6-2": {addr: "fd12:3456:789a:1::1", space: SpacePrivate6},
 		"link6":      {addr: "fe80::1234", space: SpaceLink6},
 		"link6_zone": {addr: "fe80::1234%%en0", space: SpaceLink6},
 		"link4":      {addr: "169.254.12.1", space: SpaceLink4},
@@ -41,6 +44,66 @@ func TestGetAddrSpace(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLinkLocalRoute(t *testing.T) {
+
+	laddr, _ := netip.ParseAddr(`fd00::2`)
+	//laddr = netip.IPv6Unspecified()
+	laddrPort := netip.AddrPortFrom(laddr, 42004)
+	d := &net.Dialer{
+		LocalAddr: net.TCPAddrFromAddrPort(laddrPort),
+		Timeout:   3 * time.Second,
+	}
+	//c, err := d.Dial("tcp", v6pub)
+	c, err := d.Dial("tcp", "google.com:80")
+	if err != nil {
+		t.Fatalf("nope: %v", err)
+	}
+	t.Log(c.LocalAddr(), c.RemoteAddr())
+	t.Fail()
+}
+
+func TestDefaultRoute(t *testing.T) {
+
+	laddr, err := localIpFor(v6pub)
+	t.Log(laddr, err)
+	t.Fail()
+}
+
+func TestIfaces(t *testing.T) {
+
+	ifs, _ := net.Interfaces()
+	t.Fatal(ifs)
+
+}
+
+func TestQuery(t *testing.T) {
+
+	laddr, _ := localNetIpFor(v4pub)
+
+	ifaces, _ := Query()
+	_, iface := ifaces.FindByAddr(laddr)
+	spaceMap := iface.SpaceMap()
+	t.Log(spaceMap)
+	var toUse []netip.Addr
+	for space, addrs := range spaceMap {
+		if DefaultSpaces.Includes(space) {
+			toUse = append(toUse, addrs[0].Addr())
+		}
+	}
+	t.Log(toUse)
+	//for _, iface := range ifaces {
+	//addrs := iface.MatchSpace(DefaultSpaces)
+	// if len(addrs) == 0 {
+	// 	continue
+	// }
+	// for _, addr := range addrs {
+	// 	routable := localIsPubliclyRoutable(addr.Addr())
+	// 	t.Log(iface.Index, iface.Name, addr, routable)
+	// }
+	//}
+	t.Fail()
 }
 
 func TestAddrSpaceIncluded(t *testing.T) {

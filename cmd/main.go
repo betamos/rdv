@@ -19,7 +19,7 @@ var (
 	flagRelay   bool
 	flagLAddr   string
 
-	spaces = rdv.DefaultSpaces
+	spaces = rdv.PublicSpaces
 )
 
 func usage() {
@@ -46,6 +46,7 @@ func main() {
 	if flagRelay {
 		spaces = rdv.NoSpaces
 	}
+
 	command := flag.Arg(0)
 	switch command {
 	case "s", "serve":
@@ -84,8 +85,8 @@ func handler(ctx context.Context, dc, ac *rdv.Conn) {
 
 func client(dialer bool) error {
 	client := rdv.NewClient(&rdv.ClientConfig{
-		AddrSpaces:   spaces,
-		SelfAddrFunc: rdv.DefaultRouteSelfAddrs,
+		AddrSpaces: spaces,
+		//SelfAddrFunc: rdv.DefaultRouteSelfAddrs,
 	})
 	addr := flag.Arg(1)
 	token := flag.Arg(2)

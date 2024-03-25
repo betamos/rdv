@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 )
 
 type Conn struct {
@@ -50,6 +51,15 @@ func (c *Conn) Request() *http.Request {
 
 func (c *Conn) IsRelay() bool {
 	return c.isRelay
+}
+
+// Returns the netip remote addr, and the address space, or if relay, SpaceNone.
+func (c *Conn) Remote() (addr netip.AddrPort, space AddrSpace) {
+	addr, space = FromNetAddr(c.RemoteAddr())
+	if c.isRelay {
+		space = SpaceInvalid
+	}
+	return
 }
 
 // Returns the rdv header, e.g. "rdv/1 HELLO token" + CRLF

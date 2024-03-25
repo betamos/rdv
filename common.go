@@ -39,7 +39,7 @@ var (
 )
 
 // TODO: Ipv4-mapped v6-addrs
-func DefaultSelfAddrs(ctx context.Context, socket *Socket) []netip.AddrPort {
+func DefaultSelfAddrsOld(ctx context.Context, socket *Socket) []netip.AddrPort {
 	netAddrs, _ := net.InterfaceAddrs()
 	var addrs []netip.AddrPort
 	for _, netAddr := range netAddrs {
@@ -62,22 +62,49 @@ const (
 func DefaultRouteSelfAddrs(ctx context.Context, socket *Socket) (addrs []netip.AddrPort) {
 	// TODO: We might need to set these laddrs on the socket dialers,
 	// in case we get a different outbound ipv6 addr for the tcp conn.
-	v4, _ := localIpFor(v4pub)
-	v6, _ := localIpFor(v6pub)
+
+	// TODO: We could get an addr from the interface instead for multipath..
+	// However, we need to avoid (or at least not prefer) Unicast Local Addrs (fd00::/8).
+	v4, _ := localNetIpFor(v4pub)
+	v6, _ := localNetIpFor(v6pub)
 	addrs = append(addrs, netip.AddrPortFrom(v4, socket.Port))
 	addrs = append(addrs, netip.AddrPortFrom(v6, socket.Port))
 	return addrs
 }
 
+func DefaultSelfAddrs(ctx context.Context, socket *Socket) (addrs []netip.AddrPort) {
+	for _, addr := range socket.Interface.FirstAddrs() {
+		addrs = append(addrs, netip.AddrPortFrom(addr.Addr(), socket.Port))
+	}
+	return addrs
+}
+
 // Get local ip for an outbound conn, without actually sending any traffic.
-func localIpFor(ip string) (netip.Addr, error) {
+func localNetIpFor(ips string) (netip.Addr, error) {
+	ip, _ := localIpFor(ips)
+	addr, _ := netip.AddrFromSlice(ip)
+	return addr.Unmap(), nil
+}
+
+func localIpFor(ip string) (net.IP, error) {
 	conn, err := net.Dial("udp", ip)
 	if err != nil {
-		return netip.Addr{}, err
+		return nil, err
 	}
 	defer conn.Close()
-	nip := conn.LocalAddr().(*net.UDPAddr).AddrPort()
-	return nip.Addr(), nil
+	return conn.LocalAddr().(*net.UDPAddr).IP, nil
+}
+
+func localIsPubliclyRoutable(addr netip.Addr) bool {
+	d := &net.Dialer{
+		LocalAddr: &net.UDPAddr{IP: addr.AsSlice(), Port: 42400},
+	}
+	dst := v4pub
+	if addr.Is6() {
+		dst = v6pub
+	}
+	_, err := d.Dial("udp", dst)
+	return err == nil
 }
 
 // An IP address space is derived from an IP address. These are used for connectivity in rdv, and
@@ -86,7 +113,7 @@ type AddrSpace uint32
 
 const (
 
-	// Denotes invalid spaces.
+	// Denotes an invalid, or none-space.
 	SpaceInvalid AddrSpace = 0
 
 	// Public IPv4 addrs, extremely common and useful for remote connectivity when available.
@@ -112,7 +139,7 @@ const (
 )
 
 const (
-	// No spaces won't match any spaces
+	// NoSpaces won't match any spaces
 	NoSpaces AddrSpace = 1 << 31
 
 	// Public IPs only
@@ -146,7 +173,7 @@ func (s AddrSpace) String() string {
 	case SpaceLoopback:
 		return "loopback"
 	}
-	return "invalid"
+	return "none"
 }
 
 // Get AddrPort and AddrSpace from a TCP net.Addr
